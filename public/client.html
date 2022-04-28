@@ -6,9 +6,10 @@
   <title>Title</title>
   <style>
     div {
-      width: 200px;
-      height: 200px;
+      width: 50%;
+      height: 300px;
       border: 1px solid #000;
+      overflow: auto;
     }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"
@@ -19,16 +20,19 @@
 <body>
   <input type="text" placeholder="请输入">
   <button>发送</button>
+  <button id="btn_clear">清空</button>
   <button id="btn_login">登录</button>
 
   <!-- 显示内容 -->
-  <div></div>
+  <div style="font-size: 12px;line-height: 1.1; margin: 3px 0">
+  </div>
 
   <!-- websocket在浏览器的使用 H5提供了websocket的API-->
   <script>
     let input = document.querySelector('input');
     let button = document.querySelector('button');
     let btnLogin = document.querySelector('#btn_login');
+    let btnClear = document.querySelector('#btn_clear');
     let div = document.querySelector('div');
     let btnStatus = 'init'; // fetch success error
 
@@ -40,13 +44,15 @@
     //创建WebSocket('WebSocket服务器地址')
     // let socket = new WebSocket('ws://localhost:3322');
     // 第一个参数: "ws://example.com/my-namespace"
-    const socket = io('/', {
+    const socket = io('/chat', {
       // auth: {
       //   token: 'abc'
       // },
+      path: '/content',
       query: {
-        room: 'chat-test',
-      }
+        room: 'live_123456'
+      },
+      reconnectionAttempts: 3,
     });
     //监听WebSocket事件 open和WebSocket服务器连接成功触发
     socket.addEventListener('open', () => {
@@ -56,19 +62,37 @@
     //给webSocket发送消息
     button.addEventListener('click', () => {
       if (btnStatus !== 'success') {
-        return alert('请先登录');
+        return alert('请先登录')
       }
       let value = input.value;
-      socket.send(value);
+      socket.send({ to: 'live_123456', type: 'message', data: { content: value } });
       input.value = '';
-      div.append(generateMsg(`me : ${value}`))
+      div.append(generateMsg(`me: ${value}`))
     });
     //接受websocket服务的消息
     socket.addEventListener('message', (data) => {
       console.log(data);
-      //把消息显示到div
-      div.append(generateMsg(`${data.from} : ${data.message}`))
+      if (data.type === 'alert') {
+        alert(data.content);
+      } else if (data.type === 'message') {
+        //把消息显示到div
+        const p = generateMsg(`${data.from.username} : ${data.data.content}`)
+        div.append(p)
+      } else if (data instanceof Array) {
+        data.forEach(item => {
+          const p = generateMsg(`${item.from.username} : ${item.data.content}`)
+          div.append(p)
+        })
+      }
     });
+    socket.addEventListener('messages', (items) => {
+      items.forEach(item => {
+        const p = generateMsg(`${item.from.username} : ${item.data.content}`)
+        div.append(p)
+      })
+      document.querySelector('p:last-child').scrollIntoView(true)
+    });
+
     socket.addEventListener('system', data => {
       div.append(generateMsg(`系统消息: ${data.message}`))
     });
@@ -76,19 +100,15 @@
     // 登录部分
     btnLogin.addEventListener('click', () => {
       console.log(btnStatus, 'status');
-      if (btnStatus === 'init') {
-        btnStatus = 'fetch';
-        socket.emit('login', { user: 'test', pass: '111111' });
-      } else if (btnStatus === 'fetch' || btnStatus === 'success') {
-        // nop
-      } else if (btnStatus === 'error') {
-        btnStatus = 'fetch';
-        socket.emit('login', { user: 'test', pass: '123456' });
+      let username = prompt('请输入用户名(test开头)');
+      if (username) {
+        btnStatus = 'success';
+        socket.emit('message', { type: 'login', data: { username, pass: '123456' } });
       }
     });
-    socket.addEventListener('loginCB', (data) => {
-      btnStatus = data.code === 0 ? 'success' : 'error';
-    });
+    btnClear.addEventListener('click', () => {
+      div.innerHTML = '';
+    })
     //端口服务
     socket.addEventListener('close', () => {
       console.log('服务断开');

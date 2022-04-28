@@ -1,18 +1,23 @@
 
 const { Server } = require("socket.io");
 const { instrument, RedisStore } = require("@socket.io/admin-ui");
+const { createAdapter } = require('@socket.io/redis-adapter');
 const { createClient } = require('redis');
 const config = require('./config/config');
+const dispatch = require('./events/dispatch')
+const middleware = require('./middleware');
 
-module.exports = function (httpServer) {
+module.exports = async function (httpServer) {
 
   const redisClient = createClient({
     url: config.REDIS_URL,
     // username: '',
     password: config.REDIS_PASS,
   });
+  const subClient = redisClient.duplicate();
 
   const io = new Server(httpServer, {
+    path: '/content',
     cors: {
       origin: ["http://localhost:3322"],
       allowedHeaders: ["X-ws-authorization"],
@@ -22,6 +27,7 @@ module.exports = function (httpServer) {
 
   // 管理后台设置
   instrument(io, {
+    namespaceName: '/manage',
     // auth: false
     auth: {
       type: 'basic',
@@ -36,74 +42,34 @@ module.exports = function (httpServer) {
   });
 
   // 默认空间
-  io.of('/').on('connection', function (socket) {
+  io.of('/chat').on('connection', function (socket) {
     console.log(`ws: ${socket.id} connected!`);
     const room = socket.handshake.query.room;
-    // socket.rooms
     // 字段设计: name,type,room?,signin,
-    // socket.data.username = 'test';
     if (room) {
+      socket.data.room = room;
       socket.join(room);
-      // socket.to(room).emit('system', { from: 'system', message: '?加入放假' });
+    } else {
+      // socket.disconnect();
     }
-    // 中间件使用
-    // 未登录不能发消息
+    // 中间件.未登录不能发消息
     socket.use((argv, next) => {
-      // console.log(socket, argv, 'use');
-      // 登录验证
-      // const token = socket.handshake.auth.token;
-      if (argv[0] === 'message' && !socket.data.login) {
-        return next(new Error("NEED_LOGIN"));
-      }
-      next();
+      middleware({ io, socket }, argv, next);
     });
-    // 登录
-    socket.on('login', async (data) => {
-      console.log(data, 'login');
-      if (data.user === 'test' && data.pass === '123456') {
-        socket.data.login = true;
-        socket.data.username = 'guest001';
-        socket.emit('loginCB', { code: 0 })
-        const sockets = await io.in(room).fetchSockets();
-        socket.to(room).emit('system', { from: 'system', message: socket.data.username + ' 加入房间', total: sockets.length });
-        socket.emit('system', { from: 'system', message: socket.data.username + ' 加入房间' });
-      } else {
-        socket.emit('loginCB', { code: -1 })
-      }
-    })
+
+    socket.on('message', function (data) {
+      dispatch(io, socket, data);
+    });
+
     socket.on("error", (err) => {
       console.log(err.message);
     });
 
-    // 点对点通信
-    socket.on("private message", (anotherSocketId, msg) => {
-      socket.to(anotherSocketId).emit("private message", socket.id, msg);
-    });
-
-    socket.on('message', function (msg) {
-      socket.broadcast.emit('message', { from: 'user', message: msg, })
-    });
-
-    socket.on("disconnecting", (reason) => {
-      // for (const room of socket.rooms) {
-      //   if (room !== socket.id) {
-      //     socket.to(room).emit("user has left", socket.id);
-      //   }
-      // }
-      if (socket.handshake.query.room) {
-        socket.leave(socket.handshake.query.room);
-      }
-    });
     socket.on('disconnect', function () {
       console.log('socket disconnect');
     })
   });
-
-  // io.of(/^\/dynamic-\d+$/)
-
-  // 管理用户空间
-  io.of('/admin').on('connection', socket => {
-
-  })
+  await Promise.all([redisClient.connect(), subClient.connect()])
+  io.adapter(createAdapter(redisClient, subClient));
   return io;
 }

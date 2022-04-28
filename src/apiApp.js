@@ -13,20 +13,27 @@ const wsCreate = require('./wsApp');
 // });
 // 必须要这一步
 const httpServer = require("http").Server(app);
-// ws服务绑定到http服务
-const ws = wsCreate(httpServer);
 
 // websocketUI必须放public下
 app.use(express.static(config.ROOT_PATH + '/public'));
 app.use(bodyParser.json({ limit: '3mb' }));
 
 app.post('/admin/command', async (req, res) => {
-  const sockets = await ws.of('/admin').fetchSockets()
-  console.log(sockets.length, req.body);
-  ws.of('/').emit('message', req.body);
-  res.json({ code: 0 });
+  const { type, data } = req.body;
+  if (type === 'count') {
+    const total = (await app.ws.of('/chat').in(data.in).allSockets()).size;
+    res.json({ code: 0, data: { total } })
+  } else if (type === 'system') {
+    app.ws.of('/chat').to(data.to).emit('message', data);
+    res.json({ code: 0 });
+  }
+
 })
 
-httpServer.listen(config.PORT, function () {
-  console.log(`server listening ${config.PORT}, ${process.env.NODE_ENV}`);
+// ws服务绑定到http服务
+wsCreate(httpServer).then(ws => {
+  app.ws = ws;
+  httpServer.listen(config.PORT, function () {
+    console.log(`server listening ${config.PORT}, ${process.env.NODE_ENV}`);
+  });
 });

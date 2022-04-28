@@ -1,0 +1,23 @@
+version: "3"
+services: 
+  ftp-import:
+    container_name: chat
+    image: chat:v0.0.1
+    restart: always
+    # depends_on: 
+    #   - mongo
+    # links:
+    #   - mongo
+    networks:
+      - allinone
+    environment:
+      - NODE_ENV=prod
+      - PORT=3322
+      - REIDS_URL="redis://localhost:6379"
+      - REDIS_PASS=phoenixtv2017
+    working_dir: "/chat"
+    command: "npm run dev"
+
+networks:
+  allinone:
+    external: true
